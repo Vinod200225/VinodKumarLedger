@@ -7,7 +7,7 @@ import Nav from './Nav.jsx'
 
 export default function Layout({ children, basePath }) {
   const { logout } = useAuth()
-  const { pullFromSheet, status } = useSync()
+  const { pullFromSheet, status, isMaster, syncAllToOtherView } = useSync()
   const toast = useToast()
   const navigate = useNavigate()
 
@@ -18,6 +18,17 @@ export default function Layout({ children, basePath }) {
       toast.success('Pulled fresh from sheet')
     } catch (err) {
       toast.error('Pull failed: ' + err.message)
+    }
+  }
+
+  async function handleSyncAll() {
+    if (!confirm('Copy ALL data from this sheet to Sheet 2?\n\nIt adds/updates everything here into Sheet 2 (transactions, loans, reminders, accounts, budget, debt settings) and keeps any extra data already in Sheet 2. Salary is not copied.')) return
+    try {
+      toast.info?.('Syncing to Sheet 2…')
+      await syncAllToOtherView()
+      toast.success('Everything synced to Sheet 2')
+    } catch (err) {
+      toast.error('Sync to Sheet 2 failed: ' + err.message)
     }
   }
 
@@ -40,6 +51,16 @@ export default function Layout({ children, basePath }) {
           >
             ↓ Pull
           </button>
+          {isMaster && (
+            <button
+              className="text-xs text-brand-300 hover:text-brand-200 px-2 py-1 rounded-lg border border-brand-500/40"
+              onClick={handleSyncAll}
+              disabled={status === 'pulling' || status === 'pushing'}
+              title="Copy all data from this sheet into Sheet 2 (keeps Sheet 2 extras; salary not copied)"
+            >
+              ⇄ Sync to Sheet 2
+            </button>
+          )}
           <button
             className="text-xs text-slate-400 hover:text-slate-200 px-2 py-1 rounded-lg border border-ink-700"
             onClick={() => { logout(); navigate('/', { replace: true }) }}

@@ -81,3 +81,8 @@ export const ACCOUNT_TYPES = [
 ]
 
 export const SYNC_DEBOUNCE_MS = 300
+
+// Sync flows ONE WAY: from the master sheet (sheet 1, Vinod@4115 = the "public" view)
+// to the other sheet (sheet 2, Malavika@1925 = the "real" view). Edits made directly
+// in sheet 2 are NOT pushed back, so extra data you add there stays only there.
+export const MASTER_VIEW = 'public'

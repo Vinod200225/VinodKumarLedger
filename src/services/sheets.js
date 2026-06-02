@@ -191,7 +191,9 @@ export function rowsToBudget(rows) {
 export function configToRows(config) {
   const rows = [['Key', 'Value']]
   const flat = flatten(config)
-  Object.entries(flat).forEach(([k, v]) => rows.push([k, String(v)]))
+  // Arrays (e.g. customCategories.expense = ['TEA']) must be JSON-encoded, otherwise
+  // String(['TEA']) → "TEA" reads back as a bare string and gets spread into T/E/A.
+  Object.entries(flat).forEach(([k, v]) => rows.push([k, Array.isArray(v) ? JSON.stringify(v) : String(v)]))
   return rows
 }
 
@@ -222,6 +224,9 @@ function unflatten(flat) {
     let cur = out
     parts.forEach((p, i) => {
       if (i === parts.length - 1) {
+        if (typeof v === 'string' && v.startsWith('[') && v.endsWith(']')) {
+          try { cur[p] = JSON.parse(v); return } catch { /* not JSON — fall through */ }
+        }
         const num = Number(v)
         cur[p] = !Number.isNaN(num) && v !== '' && /^-?\d+(\.\d+)?$/.test(v) ? num : v
       } else {

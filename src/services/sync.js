@@ -96,6 +96,56 @@ async function doMirrorOp({ currentView, tab, op, item, id }) {
   }
 }
 
+// One-time / on-demand full sync of EVERYTHING from the current (master) sheet to
+// the other sheet. Upserts by id so it brings over all shared data AND preserves
+// rows that exist only in the other sheet (your sheet-2 extras). Salary is NOT
+// copied — it stays independent per sheet.
+const SALARY_KEYS = ['currentSalary', 'newSalary']
+
+function upsertById(mine, theirs) {
+  const map = new Map((theirs || []).map(e => [String(e.id), e]))
+  ;(mine || []).forEach(it => map.set(String(it.id), { ...(map.get(String(it.id)) || {}), ...it }))
+  return [...map.values()]
+}
+
+function mergeBudget(theirs, mine) {
+  const out = { ...(theirs || {}) }
+  Object.entries(mine || {}).forEach(([month, cats]) => {
+    out[month] = { ...(out[month] || {}), ...(cats || {}) }
+  })
+  return out
+}
+
+function mergeConfigExceptSalary(theirs, mine) {
+  const mineCopy = { ...(mine || {}) }
+  SALARY_KEYS.forEach(k => delete mineCopy[k])
+  return { ...(theirs || {}), ...mineCopy }
+}
+
+export async function backfillToOtherView({ currentView, state }) {
+  const otherView = currentView === 'real' ? 'public' : 'real'
+  const creds = credsFor(otherView)
+  if (!creds.sheetId || !creds.apiKey || !creds.webhookUrl || !creds.secret) {
+    throw new Error('The other sheet is not fully configured')
+  }
+  const read = (tab) => readSheet({ sheetId: creds.sheetId, apiKey: creds.apiKey, tab })
+  const write = (tab, values) => writeSheet({
+    webhookUrl: creds.webhookUrl, secret: creds.secret, sheetId: creds.sheetId, tab, values
+  })
+
+  const txNext = upsertById(state.transactions, rowsToTransactions(await read(SHEET_TABS.TRANSACTIONS)))
+  await write(SHEET_TABS.TRANSACTIONS, transactionsToRows(txNext))
+
+  await write(SHEET_TABS.LOANS,     loansToRows(upsertById(state.loans, rowsToLoans(await read(SHEET_TABS.LOANS)))))
+  await write(SHEET_TABS.REMINDERS, remindersToRows(upsertById(state.reminders, rowsToReminders(await read(SHEET_TABS.REMINDERS)))))
+
+  const accNext = upsertById(state.accounts, rowsToAccounts(await read(SHEET_TABS.ACCOUNTS)))
+  await write(SHEET_TABS.ACCOUNTS, accountsToRows(accNext, txNext))
+
+  await write(SHEET_TABS.BUDGET, budgetToRows(mergeBudget(rowsToBudget(await read(SHEET_TABS.BUDGET)), state.budget)))
+  await write(SHEET_TABS.CONFIG, configToRows(mergeConfigExceptSalary(rowsToConfig(await read(SHEET_TABS.CONFIG)), state.config)))
+}
+
 export async function pullAll(creds) {
   const { sheetId, apiKey } = creds
   const safe = async (tab) => {

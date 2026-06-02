@@ -1,7 +1,7 @@
 import { createContext, useContext, useMemo, useState, useRef, useEffect, useCallback } from 'react'
-import { pullAll, pushAll, makeDebouncedPush } from '../services/sync.js'
+import { pullAll, pushAll, makeDebouncedPush, backfillToOtherView } from '../services/sync.js'
 import { useApp } from './AppContext.jsx'
-import { SYNC_DEBOUNCE_MS } from '../config/constants.js'
+import { SYNC_DEBOUNCE_MS, MASTER_VIEW } from '../config/constants.js'
 
 const SyncContext = createContext(null)
 
@@ -151,9 +151,16 @@ export function SyncProvider({ children }) {
     }
   }, [creds, configured, dispatch])
 
+  // Push EVERYTHING from this (master) sheet to the other sheet — used by the
+  // "Sync to Sheet 2" button to backfill data that predates auto-mirroring.
+  const isMaster = view === MASTER_VIEW
+  const syncAllToOtherView = useCallback(async () => {
+    await backfillToOtherView({ currentView: view, state: stateRef.current })
+  }, [view])
+
   const value = useMemo(
-    () => ({ status, lastSyncAt, error, syncNow, pullFromSheet, configured }),
-    [status, lastSyncAt, error, syncNow, pullFromSheet, configured]
+    () => ({ status, lastSyncAt, error, syncNow, pullFromSheet, configured, isMaster, syncAllToOtherView }),
+    [status, lastSyncAt, error, syncNow, pullFromSheet, configured, isMaster, syncAllToOtherView]
   )
   return <SyncContext.Provider value={value}>{children}</SyncContext.Provider>
 }

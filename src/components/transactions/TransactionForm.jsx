@@ -20,8 +20,11 @@ export default function TransactionForm({ initial, onSubmit, onCancel }) {
   const [form, setForm] = useState(EMPTY)
   const submittingRef = useRef(false)
 
-  const customExpense = state.config?.customCategories?.expense || []
-  const customIncome  = state.config?.customCategories?.income  || []
+  // Tolerate legacy data where a custom-category list was saved as a bare string
+  // (which would otherwise spread into individual letters, e.g. "TEA" → T,E,A).
+  const toArr = v => Array.isArray(v) ? v : (typeof v === 'string' && v ? [v] : [])
+  const customExpense = toArr(state.config?.customCategories?.expense)
+  const customIncome  = toArr(state.config?.customCategories?.income)
 
   const accounts = state.accounts || []
   const defaultAccount = accounts[0]?.name || ''
@@ -60,15 +63,11 @@ export default function TransactionForm({ initial, onSubmit, onCancel }) {
       const name = (prompt('New category name?') || '').trim()
       if (!name) return
       const key = form.type === 'income' ? 'income' : 'expense'
-      const existing = state.config?.customCategories || { expense: [], income: [] }
-      const list = existing[key] || []
-      if (list.includes(name)) { set('category', name); return }
-      dispatch({
-        type: 'CONFIG_SET',
-        patch: {
-          customCategories: { ...existing, [key]: [...list, name] }
-        }
-      })
+      const existing = state.config?.customCategories || {}
+      // Normalize both lists to arrays — this also heals any legacy string value.
+      const next = { expense: toArr(existing.expense), income: toArr(existing.income) }
+      if (!next[key].includes(name)) next[key] = [...next[key], name]
+      dispatch({ type: 'CONFIG_SET', patch: { customCategories: next } })
       set('category', name)
     } else {
       set('category', value)

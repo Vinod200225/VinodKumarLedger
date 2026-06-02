@@ -120,24 +120,6 @@ export default function MonthProjection() {
         </div>
       )}
 
-      {data.dayOfMonth > 0 && data.daysRemaining > 0 && data.expenseLogged > 0 && (
-        <div className="mt-3 rounded-lg bg-ink-800 p-2 border border-ink-700">
-          <div className="text-[10px] uppercase tracking-wide text-slate-500 mb-1">
-            At current pace · day {data.dayOfMonth} of {data.totalDays}
-          </div>
-          <div className="text-sm text-slate-300">
-            Spending ~{formatInr(data.paceDaily, { precise: true })}/day → projected total spend{' '}
-            <span className="text-slate-100 font-semibold">{formatInr(data.paceProjectedTotalSpend, { precise: true })}</span>
-            <span className="text-slate-500"> (incl. remaining commitments)</span>
-          </div>
-          <div className="text-sm mt-1">
-            Forecast end-of-month balance:{' '}
-            <span className={'font-bold ' + (data.paceProjectedBalance >= 0 ? 'text-good' : 'text-bad')}>
-              {data.paceProjectedBalance >= 0 ? '+' : ''}{formatInr(data.paceProjectedBalance, { precise: true })}
-            </span>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
