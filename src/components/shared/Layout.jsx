@@ -35,38 +35,45 @@ export default function Layout({ children, basePath }) {
   return (
     <div className="min-h-full pb-24">
       <header className="sticky top-0 z-20 bg-ink-950/90 backdrop-blur border-b border-ink-800 safe-top">
-        <div className="max-w-3xl mx-auto px-4 py-3 flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center text-white font-bold text-sm">
-            VK
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-sm font-semibold text-slate-100 truncate">Ledger</div>
-            <SyncStatusBadge />
-          </div>
-          <button
-            className="text-xs text-slate-400 hover:text-slate-200 px-2 py-1 rounded-lg border border-ink-700"
-            onClick={handlePull}
-            disabled={status === 'pulling' || status === 'pushing'}
-            title="Replace local data with what's in Google Sheet"
-          >
-            ↓ Pull
-          </button>
-          {isMaster && (
+        <div className="max-w-3xl mx-auto px-4 py-3">
+          {/* Row 1: identity + sign out */}
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center text-white font-bold text-sm shrink-0">
+              VK
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-semibold text-slate-100 truncate">Ledger</div>
+            </div>
             <button
-              className="text-xs text-brand-300 hover:text-brand-200 px-2 py-1 rounded-lg border border-brand-500/40"
-              onClick={handleSyncAll}
-              disabled={status === 'pulling' || status === 'pushing'}
-              title="Copy all data from this sheet into Sheet 2 (keeps Sheet 2 extras; salary not copied)"
+              className="text-xs text-slate-400 hover:text-slate-200 px-2 py-1 rounded-lg border border-ink-700 shrink-0"
+              onClick={() => { logout(); navigate('/', { replace: true }) }}
             >
-              ⇄ Sync to Sheet 2
+              Sign out
             </button>
-          )}
-          <button
-            className="text-xs text-slate-400 hover:text-slate-200 px-2 py-1 rounded-lg border border-ink-700"
-            onClick={() => { logout(); navigate('/', { replace: true }) }}
-          >
-            Sign out
-          </button>
+          </div>
+
+          {/* Row 2: sync controls — wraps cleanly on narrow screens, no overlap */}
+          <div className="mt-2 flex items-center flex-wrap gap-2">
+            <SyncStatusBadge />
+            <button
+              className="text-xs text-slate-400 hover:text-slate-200 px-2 py-1 rounded-lg border border-ink-700"
+              onClick={handlePull}
+              disabled={status === 'pulling' || status === 'pushing'}
+              title="Replace local data with what's in Google Sheet"
+            >
+              ↓ Pull
+            </button>
+            {isMaster && (
+              <button
+                className="text-xs text-brand-300 hover:text-brand-200 px-2 py-1 rounded-lg border border-brand-500/40"
+                onClick={handleSyncAll}
+                disabled={status === 'pulling' || status === 'pushing'}
+                title="Copy all data from this sheet into Sheet 2 (keeps Sheet 2 extras; salary not copied)"
+              >
+                ⇄ Sync to Sheet 2
+              </button>
+            )}
+          </div>
         </div>
       </header>
 

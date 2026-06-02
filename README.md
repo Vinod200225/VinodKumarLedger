@@ -3,10 +3,29 @@
 A single-user personal finance Progressive Web App with **two password-protected views**, **Google Sheets** as the database, **bidirectional sync**, and **iOS / Android Add-to-Home-Screen** install.
 
 > One URL. One username. Two passwords.
-> - Password A → Public view (sanitized figures, safe to show anyone)
-> - Password B → Real view (actual numbers, fully private)
+> - `Vinod@4115` → **Public view = Sheet 1 (master)** — where you do all your editing.
+> - `Malavika@1925` → **Real view = Sheet 2 (mirror)** — auto-receives everything from Sheet 1, plus any extras you add only here.
 >
-> Each view is backed by its own Google Sheet. Edits stay in their own sheet unless you tick the **Duplicate to other view** checkbox.
+> Each view is backed by its own Google Sheet. **Sync is one-way: Sheet 1 → Sheet 2, automatically.** See "Current status" below.
+
+---
+
+## Current status (last updated 2026-06-02)
+
+**Sync model — IMPORTANT**
+- The Google **Sheet is the source of truth on load**; the app pulls from it first and blocks any write until that pull succeeds (so stale/seed data can never overwrite real data).
+- **Every** add / edit / delete in **Sheet 1** auto-mirrors to **Sheet 2** (transactions, loans, EMIs, Slice, reminders, accounts). No "duplicate" checkbox anymore — it's automatic.
+- **One-way only:** edits made directly in Sheet 2 are never pushed back to Sheet 1, so Sheet-2-only extras are safe.
+- Each row has a hidden stable **`Id`** column (last column of every tab) so edit/delete can match the right row across both sheets. Added non-destructively on first write.
+- **⇄ Sync to Sheet 2** button (header, master view only) does a full backfill: upserts everything into Sheet 2, merges budget + config, preserves Sheet-2 extras. **Salary is excluded** from all sync — it's independent per sheet.
+
+**Behavior**
+- **Self-transfer** (Dashboard → "⇄ Self transfer"): moves money between accounts; excluded from income/expense totals, counted in account balances.
+- **Slice / revolving payment** logs only the **net difference** as one entry (paid − withdrawn), never a separate fake income.
+- **Standard-loan EMIs** (Kreditbee, IDFC, HDFC…): once this month's EMI is recorded, the "Pay EMI" button is replaced with "✓ This month's EMI paid" until next month (or until you delete that transaction).
+- **Budget tab:** the **Plan** column is what you set; the **Spent** column is **auto-computed** from that month's expenses by category (includes custom categories like TEA). "Budget breakdown" shows the planned split. Post-Debt Salary Split is removed for now (re-add after loans are cleared).
+- **June outlook:** shows money-in / money-out only (the "at current pace" forecast was removed).
+- **Mobile:** inputs are 16px to stop iOS zoom; background scroll locks while a modal is open; header sync controls sit on their own wrapping row.
 
 ---
 
@@ -169,14 +188,16 @@ Sanity check: open the `/exec` URL in a browser. You should see:
 
 The webhook overwrites entire tabs on each push. Schemas are managed entirely from code in [`src/services/sheets.js`](src/services/sheets.js). Header row is regenerated on each write.
 
+Each row-based tab has a hidden trailing **`Id`** column (stable per-row id used for cross-sheet mirroring).
+
 | Tab | Columns |
 |---|---|
-| `Loans` | Name · Kind (`standard`/`revolving`) · Principal · AmountPaid · EMI · DueDate · EndDate · Source · Status |
-| `Transactions` | Date · Category · Subcategory · Amount · Note · Type (`income`/`expense`) · Account |
-| `Reminders` | Title · Date · RecurrenceType · Amount · Type · ValidityDays · Account · Notes |
-| `Budget` | Month (`YYYY-MM`) · Category · Budgeted · Actual |
-| `Config` | Key · Value (flat dot-notation, e.g. `splitPostDebt.invest = 40`) |
-| `Accounts` | Name · Type · OpeningBalance · OpeningDate · CurrentBalance (auto-computed on push) · Notes |
+| `Loans` | Name · Kind (`standard`/`revolving`) · Principal · AmountPaid · EMI · DueDate · EndDate · Source · Status · Phases · **Id** |
+| `Transactions` | Date · Category · Subcategory · Amount · Note · Type (`income`/`expense`) · Account · **Id** |
+| `Reminders` | Title · Date · RecurrenceType · Amount · Type · ValidityDays · Account · Notes · **Id** |
+| `Budget` | Month (`YYYY-MM`) · Category · Budgeted · Actual (Actual is auto-computed from spend in the app) |
+| `Config` | Key · Value (flat dot-notation; arrays JSON-encoded, e.g. `customCategories.expense = ["TEA"]`) |
+| `Accounts` | Name · Type · OpeningBalance · OpeningDate · CurrentBalance (auto-computed on push) · Notes · **Id** |
 
 Sort order on push: loans active-first, transactions newest-first, reminders soonest-first.
 
@@ -184,14 +205,12 @@ Sort order on push: loans active-first, transactions newest-first, reminders soo
 
 ## Sync model (important to understand)
 
-- **State of truth** is localStorage (per view). Sheets are a durable backup.
-- **On app mount:**
-  - If localStorage has data → **don't hydrate from sheet** (avoids races where a quick refresh clobbers in-flight pushes). The initial pull still runs to refresh the "last synced" timestamp.
-  - If localStorage is empty → pull from sheet and seed local state.
-- **On any state change:** debounced push (300ms) sends the whole state to the sheet.
-- **To pick up edits made directly in Google Sheets**, tap the **Sync badge** in the header (top-right). This does push-then-pull and overwrites local.
-- **To force-save a batch of edits** before refreshing, tap **💾 Save** on the Reminders page (or just tap the Sync badge anywhere). Auto-save fires within 300ms, but explicit save is faster.
-- **Cross-view duplicate**: every transaction form has a **"Duplicate to other view"** checkbox. When ticked, after saving locally the entry is appended to the *other* view's sheet too. Default: unchecked.
+- **Source of truth on load is the Google Sheet.** On mount the app pulls from the sheet and hydrates from it. **All writes are blocked until that pull succeeds**, so stale local / seed data can never overwrite real sheet data.
+- **On any state change:** a debounced push (300ms) sends the current view's whole state to *its own* sheet.
+- **Cross-sheet mirroring is automatic and one-way (Sheet 1 → Sheet 2).** Each discrete add/edit/delete in the master (public) view is mirrored to the other sheet via an operation-based `mirrorOp` (read → change one row by `Id` → write) — it never blind-overwrites the other sheet, and it preserves Sheet-2-only rows. Editing directly in Sheet 2 does **not** push back. See `src/hooks/useMirror.js`, `src/services/sync.js` (`mirrorOp`), and `MASTER_VIEW` in `src/config/constants.js`.
+- **Stable ids:** every entity carries a permanent `id` persisted in a hidden trailing `Id` column on each tab (`src/utils/id.js`). Legacy rows fall back to row-position until their id is written on the next save.
+- **Full backfill:** the **⇄ Sync to Sheet 2** button (header, master view only) calls `backfillToOtherView()` — upserts all transactions/loans/reminders/accounts by id, merges budget + config (minus salary), and keeps Sheet-2 extras. Use it to bring data created before auto-mirroring existed.
+- **To pull edits made directly in the Sheet**, tap **↓ Pull** (replaces local with sheet) or the **Sync badge** (push-then-pull).
 
 ---
 
@@ -245,7 +264,7 @@ After install the app runs full-screen with no Safari/Chrome chrome — looks na
 - **Auth is client-side hashing.** SHA-256 of your typed password is compared to the build-time injected hashes. The hashes are not secret-secret — they're in the bundled JS. The actual passwords are never in the bundle.
 - **Categories are extensible.** Built-in expense / income categories are in `src/config/constants.js`. Users can also add ad-hoc categories from the transaction form via "+ Add new category..."; these are persisted in `config.customCategories` (per view).
 - **Investments are derived data.** No separate `investments` array — anything tagged `category = Investment` with a subcategory shows up on the Investments page grouped by that subcategory.
-- **Revolving credit handling.** Loans with `kind = 'revolving'` (e.g. Slice) have a custom "Record payment" flow that captures both `paid` and `withdrawn back` amounts. Net reduction = paid − withdrawn. Two transactions are created: an expense for `paid` and an income for `withdrawn`.
+- **Revolving credit handling.** Loans with `kind = 'revolving'` (e.g. Slice) have a custom "Record payment" flow that captures both `paid` and `withdrawn back` amounts. Net reduction = paid − withdrawn, and a **single** transaction is logged for that net amount (so it never inflates income). Standard EMI loans hide the "Pay EMI" button once the current month's EMI is recorded.
 
 ---
 

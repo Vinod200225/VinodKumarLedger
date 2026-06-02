@@ -33,6 +33,18 @@ export default function LoanCard({ loan, onEdit, onDelete, onRecordPayment, onPa
       .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
   }, [state.transactions, loan.name])
 
+  // Has this month's EMI already been recorded for this loan? If so, hide the
+  // "Pay EMI" button until next month (or until that transaction is deleted).
+  const emiPaidThisMonth = useMemo(() => {
+    if (isRevolving) return false
+    const name = loan.name || ''
+    return (state.transactions || []).some(t =>
+      t.category === 'EMI' &&
+      (t.subcategory === name || (t.note || '').startsWith(name)) &&
+      (t.date || '').slice(0, 7) === currentMonth
+    )
+  }, [state.transactions, loan.name, currentMonth, isRevolving])
+
   return (
     <div className="card">
       <div className="flex items-start justify-between gap-2">
@@ -168,13 +180,18 @@ export default function LoanCard({ loan, onEdit, onDelete, onRecordPayment, onPa
             </details>
           )}
 
-          {onPayEmi && loan.status === 'active' && (
+          {onPayEmi && loan.status === 'active' && !emiPaidThisMonth && (
             <button
               onClick={onPayEmi}
               className="btn-primary w-full mt-3 !py-2 text-sm"
             >
               + Pay this month's EMI{thisMonthEmi > 0 && <> · {formatInr(thisMonthEmi)}</>}
             </button>
+          )}
+          {onPayEmi && loan.status === 'active' && emiPaidThisMonth && (
+            <div className="mt-3 rounded-lg bg-good/10 border border-good/30 px-3 py-2 text-sm text-good text-center font-medium">
+              ✓ This month's EMI paid
+            </div>
           )}
           {linkedTxs.length > 0 && (
             <details className="mt-3">
