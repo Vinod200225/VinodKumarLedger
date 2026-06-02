@@ -5,11 +5,14 @@ import Modal from '../shared/Modal.jsx'
 import TransactionForm from './TransactionForm.jsx'
 import { formatInr } from '../../utils/format.js'
 import { fmtDate, monthKey } from '../../utils/date.js'
-import { mirrorTransactionToOtherView } from '../../services/sync.js'
+import { newId } from '../../utils/id.js'
+import { useMirror } from '../../hooks/useMirror.js'
+import { SHEET_TABS } from '../../config/constants.js'
 
 export default function Transactions() {
-  const { view, state, dispatch } = useApp()
+  const { state, dispatch } = useApp()
   const toast = useToast()
+  const mirror = useMirror()
   const [month, setMonth] = useState(monthKey())
   const [editing, setEditing] = useState(null)
   const [showForm, setShowForm] = useState(false)
@@ -47,31 +50,29 @@ export default function Transactions() {
   const totals = useMemo(() => {
     let income = 0, expense = 0
     monthTxs.forEach(t => {
+      if (t.category === 'Transfer') return   // self-transfers move money, they aren't income/expense
       if (t.type === 'income') income += Number(t.amount) || 0
       else expense += Number(t.amount) || 0
     })
     return { income, expense, net: income - expense }
   }, [monthTxs])
 
-  async function handleSubmit(tx, { duplicate }) {
+  function handleSubmit(tx) {
     if (editing) {
-      dispatch({ type: 'TX_UPDATE', tx: { ...tx, id: editing.id } })
+      const updated = { ...tx, id: editing.id }
+      dispatch({ type: 'TX_UPDATE', tx: updated })
       toast.success('Entry updated')
+      setShowForm(false)
+      setEditing(null)
+      mirror(SHEET_TABS.TRANSACTIONS, 'update', { item: updated })
     } else {
-      const withId = { ...tx, id: Date.now() }
+      const withId = { ...tx, id: newId() }
       dispatch({ type: 'TX_ADD', tx: withId })
       toast.success('Entry added')
-      if (duplicate) {
-        try {
-          await mirrorTransactionToOtherView({ currentView: view, tx: withId })
-          toast.success('Mirrored to other view')
-        } catch (err) {
-          toast.error('Mirror failed: ' + err.message)
-        }
-      }
+      setShowForm(false)
+      setEditing(null)
+      mirror(SHEET_TABS.TRANSACTIONS, 'add', { item: withId })
     }
-    setShowForm(false)
-    setEditing(null)
   }
 
   function handleEdit(tx) {
@@ -83,6 +84,7 @@ export default function Transactions() {
     if (!confirm(`Delete this ${t2(tx.type)} of ${formatInr(tx.amount, { precise: true })}?`)) return
     dispatch({ type: 'TX_DELETE', id: tx.id })
     toast.success('Entry deleted')
+    mirror(SHEET_TABS.TRANSACTIONS, 'delete', { id: tx.id })
   }
 
   return (
@@ -145,7 +147,10 @@ export default function Transactions() {
       )}
 
       {grouped.map(([date, txs]) => {
-        const dayTotal = txs.reduce((s, t) => s + (t.type === 'income' ? Number(t.amount) : -Number(t.amount)), 0)
+        const dayTotal = txs.reduce((s, t) => {
+          if (t.category === 'Transfer') return s
+          return s + (t.type === 'income' ? Number(t.amount) : -Number(t.amount))
+        }, 0)
         return (
           <div key={date} className="card">
             <div className="flex items-center justify-between mb-2">
@@ -155,24 +160,26 @@ export default function Transactions() {
               </div>
             </div>
             <div className="divide-y divide-ink-800">
-              {txs.map(t => (
+              {txs.map(t => {
+                const isXfer = t.category === 'Transfer'
+                return (
                 <div key={t.id} className="py-2 flex items-center justify-between gap-2">
                   <div className="min-w-0 flex-1">
                     <div className="text-sm text-slate-100 truncate">
-                      <span className={'inline-block w-1.5 h-1.5 rounded-full mr-2 ' + (t.type === 'income' ? 'bg-good' : 'bg-bad')} />
-                      {t.category}
+                      <span className={'inline-block w-1.5 h-1.5 rounded-full mr-2 ' + (isXfer ? 'bg-slate-400' : t.type === 'income' ? 'bg-good' : 'bg-bad')} />
+                      {isXfer ? 'Transfer' : t.category}
                       {t.note && <span className="text-slate-400"> · {t.note}</span>}
                     </div>
                   </div>
-                  <div className={'text-sm font-semibold tabular-nums ' + (t.type === 'income' ? 'text-good' : 'text-bad')}>
-                    {t.type === 'income' ? '+' : '−'}{formatInr(t.amount, { precise: true })}
+                  <div className={'text-sm font-semibold tabular-nums ' + (isXfer ? 'text-slate-400' : t.type === 'income' ? 'text-good' : 'text-bad')}>
+                    {isXfer ? '⇄ ' : t.type === 'income' ? '+' : '−'}{formatInr(t.amount, { precise: true })}
                   </div>
                   <div className="flex gap-1 shrink-0">
                     <button onClick={() => handleEdit(t)} className="btn-ghost !px-2 !py-1 text-xs">Edit</button>
                     <button onClick={() => handleDelete(t)} className="btn-ghost !px-2 !py-1 text-xs text-bad">×</button>
                   </div>
                 </div>
-              ))}
+              )})}
             </div>
           </div>
         )

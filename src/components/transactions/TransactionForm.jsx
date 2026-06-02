@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '../../config/constants.js'
 import { useApp } from '../../context/AppContext.jsx'
 import { todayIso } from '../../utils/date.js'
@@ -18,7 +18,7 @@ const INVESTMENT_SUBCATEGORY_SUGGESTIONS = ['LIC Policy 1', 'LIC Policy 2', 'RD 
 export default function TransactionForm({ initial, onSubmit, onCancel }) {
   const { state, dispatch } = useApp()
   const [form, setForm] = useState(EMPTY)
-  const [duplicate, setDuplicate] = useState(false)
+  const submittingRef = useRef(false)
 
   const customExpense = state.config?.customCategories?.expense || []
   const customIncome  = state.config?.customCategories?.income  || []
@@ -29,7 +29,6 @@ export default function TransactionForm({ initial, onSubmit, onCancel }) {
   useEffect(() => {
     if (initial) {
       setForm({ ...EMPTY, account: defaultAccount, ...initial })
-      setDuplicate(false)
     } else {
       setForm({ ...EMPTY, date: todayIso(), account: defaultAccount })
     }
@@ -44,12 +43,11 @@ export default function TransactionForm({ initial, onSubmit, onCancel }) {
 
   function submit(e) {
     e.preventDefault()
+    if (submittingRef.current) return       // guard against a double-tap creating two entries
     const amt = Number(form.amount)
     if (!amt || amt <= 0) return
-    onSubmit({
-      ...form,
-      amount: amt
-    }, { duplicate })
+    submittingRef.current = true
+    onSubmit({ ...form, amount: amt })
   }
 
   const categories = form.type === 'income'
@@ -157,15 +155,9 @@ export default function TransactionForm({ initial, onSubmit, onCancel }) {
       </Field>
 
       {!isEdit && (
-        <label className="flex items-center gap-2 select-none cursor-pointer text-sm text-slate-300">
-          <input
-            type="checkbox"
-            checked={duplicate}
-            onChange={e => setDuplicate(e.target.checked)}
-            className="w-4 h-4 rounded accent-brand-500"
-          />
-          Duplicate to other view
-        </label>
+        <div className="text-xs text-slate-500 flex items-center gap-1.5">
+          <span>⇄</span> This entry is automatically copied to the other view.
+        </div>
       )}
 
       <div className="flex justify-end gap-2 pt-2">

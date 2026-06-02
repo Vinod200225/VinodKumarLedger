@@ -27,22 +27,73 @@ function credsFor(view) {
   }
 }
 
-export async function mirrorTransactionToOtherView({ currentView, tx }) {
+// ── Mirroring to the OTHER view's sheet ──────────────────────────────────────
+// Every add/edit/delete is reflected in the other sheet so both stay in sync.
+// This is operation-based (read → apply one change → write) and keyed by the
+// stable Id column, so it preserves all other rows and the two sheets can safely
+// diverge later. It NEVER does a blind full-state overwrite of the other sheet.
+
+const ENTITY_CONVERTERS = {
+  [SHEET_TABS.TRANSACTIONS]: { to: transactionsToRows, from: rowsToTransactions },
+  [SHEET_TABS.LOANS]:        { to: loansToRows,        from: rowsToLoans },
+  [SHEET_TABS.REMINDERS]:    { to: remindersToRows,    from: rowsToReminders },
+  [SHEET_TABS.ACCOUNTS]:     { to: accountsToRows,     from: rowsToAccounts }
+}
+
+// Serialize all mirror writes so two quick ops on the same tab (e.g. a transfer's
+// two legs) can't read the same snapshot and clobber each other.
+let mirrorChain = Promise.resolve()
+
+export function mirrorOp(args) {
+  const run = () => doMirrorOp(args)
+  const p = mirrorChain.then(run, run)
+  mirrorChain = p.catch(() => {})   // keep the chain alive even if one op fails
+  return p                          // caller still sees this op's success/failure
+}
+
+async function doMirrorOp({ currentView, tab, op, item, id }) {
   const otherView = currentView === 'real' ? 'public' : 'real'
   const creds = credsFor(otherView)
-  if (!creds.sheetId || !creds.apiKey || !creds.webhookUrl || !creds.secret) {
-    throw new Error(`Cannot mirror to ${otherView}: missing credentials`)
+  // If the other view isn't configured, silently skip — nothing to mirror to.
+  if (!creds.sheetId || !creds.apiKey || !creds.webhookUrl || !creds.secret) return
+  const conv = ENTITY_CONVERTERS[tab]
+  if (!conv) return
+
+  const rows = await readSheet({ sheetId: creds.sheetId, apiKey: creds.apiKey, tab })
+  const list = conv.from(rows)
+  const matchId = String(op === 'delete' ? id : item?.id)
+
+  let next
+  if (op === 'add') {
+    if (list.some(e => String(e.id) === matchId)) return   // already mirrored — idempotent
+    next = [...list, item]
+  } else if (op === 'update') {
+    let found = false
+    next = list.map(e => {
+      if (String(e.id) === matchId) { found = true; return { ...e, ...item } }
+      return e
+    })
+    if (!found) next = [...next, item]                     // not there yet → add so views converge
+  } else if (op === 'delete') {
+    next = list.filter(e => String(e.id) !== matchId)
+  } else {
+    return
   }
-  const existingRows = await readSheet({ sheetId: creds.sheetId, apiKey: creds.apiKey, tab: SHEET_TABS.TRANSACTIONS })
-  const existingTxs = rowsToTransactions(existingRows)
-  const next = [...existingTxs, { ...tx, id: tx.id || Date.now() }]
-  await writeSheet({
-    webhookUrl: creds.webhookUrl,
-    secret: creds.secret,
-    sheetId: creds.sheetId,
-    tab: SHEET_TABS.TRANSACTIONS,
-    values: transactionsToRows(next)
-  })
+
+  if (tab === SHEET_TABS.ACCOUNTS) {
+    // Accounts rows include a computed CurrentBalance derived from that sheet's own
+    // transactions, so read them to keep the column meaningful.
+    const txRows = await readSheet({ sheetId: creds.sheetId, apiKey: creds.apiKey, tab: SHEET_TABS.TRANSACTIONS })
+    await writeSheet({
+      webhookUrl: creds.webhookUrl, secret: creds.secret, sheetId: creds.sheetId,
+      tab, values: accountsToRows(next, rowsToTransactions(txRows))
+    })
+  } else {
+    await writeSheet({
+      webhookUrl: creds.webhookUrl, secret: creds.secret, sheetId: creds.sheetId,
+      tab, values: conv.to(next)
+    })
+  }
 }
 
 export async function pullAll(creds) {

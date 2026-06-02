@@ -9,10 +9,14 @@ import EMIPaymentForm from './EMIPaymentForm.jsx'
 import PayoffChart from './PayoffChart.jsx'
 import { formatInr } from '../../utils/format.js'
 import { totalScheduledFor } from '../../utils/loanPhases.js'
+import { useMirror } from '../../hooks/useMirror.js'
+import { newId } from '../../utils/id.js'
+import { SHEET_TABS } from '../../config/constants.js'
 
 export default function LoanTracker() {
   const { state, dispatch } = useApp()
   const toast = useToast()
+  const mirror = useMirror()
   const [editing, setEditing] = useState(null)         // null | 'new' | loan object
   const [recording, setRecording] = useState(null)     // null | loan object (revolving)
   const [payingEmi, setPayingEmi] = useState(null)     // null | loan object (standard)
@@ -25,45 +29,44 @@ export default function LoanTracker() {
   const open = state.loans.filter(l => l.status !== 'closed')
 
   function save(form) {
-    if (editing === 'new') dispatch({ type: 'LOAN_ADD', loan: form })
-    else dispatch({ type: 'LOAN_UPDATE', loan: { ...editing, ...form } })
-    setEditing(null)
+    if (editing === 'new') {
+      const loan = { ...form, id: newId() }
+      dispatch({ type: 'LOAN_ADD', loan })
+      setEditing(null)
+      mirror(SHEET_TABS.LOANS, 'add', { item: loan })
+    } else {
+      const loan = { ...editing, ...form }
+      dispatch({ type: 'LOAN_UPDATE', loan })
+      setEditing(null)
+      mirror(SHEET_TABS.LOANS, 'update', { item: loan })
+    }
   }
 
   function recordRevolvingPayment({ date, paid, withdrawn, note, account }) {
     const loan = recording
     const net = paid - withdrawn
     const newOutstanding = Math.max(0, (loan.principal || 0) - net)
-    dispatch({
-      type: 'LOAN_UPDATE',
-      loan: { ...loan, principal: newOutstanding, paid: (loan.paid || 0) + net }
-    })
-    dispatch({
-      type: 'TX_ADD',
-      tx: {
+    const updatedLoan = { ...loan, principal: newOutstanding, paid: (loan.paid || 0) + net }
+    dispatch({ type: 'LOAN_UPDATE', loan: updatedLoan })
+    setRecording(null)
+    mirror(SHEET_TABS.LOANS, 'update', { item: updatedLoan })
+
+    // Log ONLY the net difference as a single transaction (paid 18k, withdrew 15k
+    // → one expense of 3k), so it never inflates earnings with a fake "income".
+    if (net !== 0) {
+      const tx = {
+        id: newId(),
         date,
-        type: 'expense',
+        type: net >= 0 ? 'expense' : 'income',
         category: 'Slice',
-        amount: paid,
+        amount: Math.abs(net),
         account: account || '',
         note: note ? `${loan.name} payment: ${note}` : `${loan.name} payment`
       }
-    })
-    if (withdrawn > 0) {
-      dispatch({
-        type: 'TX_ADD',
-        tx: {
-          date,
-          type: 'income',
-          category: 'Loan returned',
-          amount: withdrawn,
-          account: account || '',
-          note: `${loan.name} withdrawal back`
-        }
-      })
+      dispatch({ type: 'TX_ADD', tx })
+      mirror(SHEET_TABS.TRANSACTIONS, 'add', { item: tx })
     }
     toast.success(`Recorded · net reduction ${formatInr(net, { precise: true })}`)
-    setRecording(null)
   }
 
   function recordEmiPayment({ date, amount, account, advanceDue, note, nextDueDate }) {
@@ -72,20 +75,22 @@ export default function LoanTracker() {
     const updated = { ...loan, paid: newPaid }
     if (advanceDue && nextDueDate) updated.dueDate = nextDueDate
     dispatch({ type: 'LOAN_UPDATE', loan: updated })
-    dispatch({
-      type: 'TX_ADD',
-      tx: {
-        date,
-        type: 'expense',
-        category: 'EMI',
-        subcategory: loan.name,
-        amount,
-        account: account || '',
-        note: note ? `${loan.name} EMI: ${note}` : `${loan.name} EMI`
-      }
-    })
-    toast.success(`EMI logged · ${formatInr(amount, { precise: true })}`)
     setPayingEmi(null)
+    mirror(SHEET_TABS.LOANS, 'update', { item: updated })
+
+    const tx = {
+      id: newId(),
+      date,
+      type: 'expense',
+      category: 'EMI',
+      subcategory: loan.name,
+      amount,
+      account: account || '',
+      note: note ? `${loan.name} EMI: ${note}` : `${loan.name} EMI`
+    }
+    dispatch({ type: 'TX_ADD', tx })
+    mirror(SHEET_TABS.TRANSACTIONS, 'add', { item: tx })
+    toast.success(`EMI logged · ${formatInr(amount, { precise: true })}`)
   }
 
   return (
@@ -107,7 +112,10 @@ export default function LoanTracker() {
             loan={loan}
             onEdit={() => setEditing(loan)}
             onDelete={() => {
-              if (confirm(`Delete "${loan.name}"?`)) dispatch({ type: 'LOAN_DELETE', id: loan.id })
+              if (confirm(`Delete "${loan.name}"?`)) {
+                dispatch({ type: 'LOAN_DELETE', id: loan.id })
+                mirror(SHEET_TABS.LOANS, 'delete', { id: loan.id })
+              }
             }}
             onRecordPayment={loan.kind === 'revolving' ? () => setRecording(loan) : undefined}
             onPayEmi={loan.kind !== 'revolving' ? () => setPayingEmi(loan) : undefined}

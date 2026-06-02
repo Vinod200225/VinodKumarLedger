@@ -5,7 +5,11 @@ export default function Modal({ open, title, onClose, children, footer }) {
     if (!open) return
     const onKey = e => { if (e.key === 'Escape') onClose?.() }
     document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
+    document.body.classList.add('modal-open')   // lock background scroll → no layout jump
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.body.classList.remove('modal-open')
+    }
   }, [open, onClose])
 
   if (!open) return null

@@ -7,11 +7,15 @@ import { useToast } from '../shared/Toast.jsx'
 import { ensurePermission, scheduleAll } from '../../services/notifications.js'
 import { formatInr } from '../../utils/format.js'
 import { fmtDate, daysBetween, todayIso, advanceByRecurrence } from '../../utils/date.js'
+import { useMirror } from '../../hooks/useMirror.js'
+import { newId } from '../../utils/id.js'
+import { SHEET_TABS } from '../../config/constants.js'
 
 export default function ReminderCalendar() {
   const { state, dispatch } = useApp()
   const { syncNow, status: syncStatus } = useSync()
   const toast = useToast()
+  const mirror = useMirror()
   const [editing, setEditing] = useState(null)
   const [permission, setPermission] = useState(
     typeof Notification !== 'undefined' ? Notification.permission : 'unsupported'
@@ -38,9 +42,17 @@ export default function ReminderCalendar() {
   }
 
   function save(r) {
-    if (editing === 'new') dispatch({ type: 'REMINDER_ADD', r })
-    else dispatch({ type: 'REMINDER_UPDATE', r: { ...editing, ...r } })
-    setEditing(null)
+    if (editing === 'new') {
+      const reminder = { ...r, id: newId() }
+      dispatch({ type: 'REMINDER_ADD', r: reminder })
+      setEditing(null)
+      mirror(SHEET_TABS.REMINDERS, 'add', { item: reminder })
+    } else {
+      const reminder = { ...editing, ...r }
+      dispatch({ type: 'REMINDER_UPDATE', r: reminder })
+      setEditing(null)
+      mirror(SHEET_TABS.REMINDERS, 'update', { item: reminder })
+    }
   }
 
   function categoryForReminderType(type) {
@@ -65,19 +77,23 @@ export default function ReminderCalendar() {
     const confirmMsg = `Mark "${r.title}" as paid today for ${formatInr(amount, { precise: true })}?` +
       (moved ? `\nNext due moves to ${fmtDate(nextDate)}.` : '\n(One-time — reminder will not auto-advance.)')
     if (!confirm(confirmMsg)) return
-    dispatch({
-      type: 'TX_ADD',
-      tx: {
-        date: today,
-        type: 'expense',
-        category: categoryForReminderType(r.type),
-        subcategory: ['LIC', 'Investment'].includes(r.type) ? r.title : '',
-        amount,
-        account: r.account || '',
-        note: 'Paid: ' + r.title
-      }
-    })
-    if (moved) dispatch({ type: 'REMINDER_UPDATE', r: { ...r, date: nextDate } })
+    const tx = {
+      id: newId(),
+      date: today,
+      type: 'expense',
+      category: categoryForReminderType(r.type),
+      subcategory: ['LIC', 'Investment'].includes(r.type) ? r.title : '',
+      amount,
+      account: r.account || '',
+      note: 'Paid: ' + r.title
+    }
+    dispatch({ type: 'TX_ADD', tx })
+    mirror(SHEET_TABS.TRANSACTIONS, 'add', { item: tx })
+    if (moved) {
+      const updated = { ...r, date: nextDate }
+      dispatch({ type: 'REMINDER_UPDATE', r: updated })
+      mirror(SHEET_TABS.REMINDERS, 'update', { item: updated })
+    }
     toast.success(moved ? 'Paid and rescheduled' : 'Logged as paid')
   }
 
@@ -156,7 +172,12 @@ export default function ReminderCalendar() {
                       <button className="btn-ghost !px-2 !py-1 text-xs" onClick={() => setEditing(r)}>Edit</button>
                       <button
                         className="btn-ghost !px-2 !py-1 text-xs text-bad"
-                        onClick={() => confirm(`Delete "${r.title}"?`) && dispatch({ type: 'REMINDER_DELETE', id: r.id })}
+                        onClick={() => {
+                          if (confirm(`Delete "${r.title}"?`)) {
+                            dispatch({ type: 'REMINDER_DELETE', id: r.id })
+                            mirror(SHEET_TABS.REMINDERS, 'delete', { id: r.id })
+                          }
+                        }}
                       >×</button>
                     </div>
                   </div>

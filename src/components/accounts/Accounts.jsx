@@ -5,7 +5,9 @@ import Modal from '../shared/Modal.jsx'
 import AccountForm from './AccountForm.jsx'
 import { formatInr } from '../../utils/format.js'
 import { fmtDate } from '../../utils/date.js'
-import { ACCOUNT_TYPES } from '../../config/constants.js'
+import { ACCOUNT_TYPES, SHEET_TABS } from '../../config/constants.js'
+import { useMirror } from '../../hooks/useMirror.js'
+import { newId } from '../../utils/id.js'
 
 export function computeAccountBalance(account, transactions) {
   if (!account) return 0
@@ -25,6 +27,7 @@ const typeLabel = v => (ACCOUNT_TYPES.find(t => t.value === v) || {}).label || v
 export default function Accounts() {
   const { state, dispatch } = useApp()
   const toast = useToast()
+  const mirror = useMirror()
   const [editing, setEditing] = useState(null)
   const [showForm, setShowForm] = useState(false)
 
@@ -39,20 +42,27 @@ export default function Accounts() {
 
   function save(form) {
     if (editing) {
-      dispatch({ type: 'ACCOUNT_UPDATE', account: { ...editing, ...form } })
+      const account = { ...editing, ...form }
+      dispatch({ type: 'ACCOUNT_UPDATE', account })
       toast.success('Account updated')
+      setShowForm(false)
+      setEditing(null)
+      mirror(SHEET_TABS.ACCOUNTS, 'update', { item: account })
     } else {
-      dispatch({ type: 'ACCOUNT_ADD', account: form })
+      const account = { ...form, id: newId() }
+      dispatch({ type: 'ACCOUNT_ADD', account })
       toast.success('Account added')
+      setShowForm(false)
+      setEditing(null)
+      mirror(SHEET_TABS.ACCOUNTS, 'add', { item: account })
     }
-    setShowForm(false)
-    setEditing(null)
   }
 
   function handleDelete(a) {
     if (!confirm(`Delete account "${a.name}"? Existing transactions linked to it will keep the name but stop counting toward any balance.`)) return
     dispatch({ type: 'ACCOUNT_DELETE', id: a.id })
     toast.success('Account deleted')
+    mirror(SHEET_TABS.ACCOUNTS, 'delete', { id: a.id })
   }
 
   return (

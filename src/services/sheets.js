@@ -48,13 +48,14 @@ function deserializePhases(s) {
 
 export function loansToRows(loans) {
   return [
-    ['Name', 'Kind', 'Principal', 'AmountPaid', 'EMI', 'DueDate', 'EndDate', 'Source', 'Status', 'Phases'],
+    ['Name', 'Kind', 'Principal', 'AmountPaid', 'EMI', 'DueDate', 'EndDate', 'Source', 'Status', 'Phases', 'Id'],
     ...sortLoans(loans).map(l => [
       l.name, l.kind || 'standard',
       l.principal, l.paid, l.emi,
       l.dueDate || '', l.endDate || '',
       l.source || '', l.status,
-      serializePhases(l.phases)
+      serializePhases(l.phases),
+      l.id ?? ''
     ])
   ]
 }
@@ -63,7 +64,7 @@ export function rowsToLoans(rows) {
   if (!rows || rows.length < 2) return []
   const [, ...data] = rows
   return data.filter(r => r[0]).map((r, i) => ({
-    id: i + 1,
+    id: r[10] || i + 1,
     name: r[0] || '',
     kind: r[1] || 'standard',
     principal: Number(r[2]) || 0,
@@ -83,8 +84,8 @@ function sortTransactionsDesc(txs) {
 
 export function transactionsToRows(txs) {
   return [
-    ['Date', 'Category', 'Subcategory', 'Amount', 'Note', 'Type', 'Account'],
-    ...sortTransactionsDesc(txs).map(t => [t.date, t.category, t.subcategory || '', t.amount, t.note || '', t.type, t.account || ''])
+    ['Date', 'Category', 'Subcategory', 'Amount', 'Note', 'Type', 'Account', 'Id'],
+    ...sortTransactionsDesc(txs).map(t => [t.date, t.category, t.subcategory || '', t.amount, t.note || '', t.type, t.account || '', t.id ?? ''])
   ]
 }
 
@@ -92,7 +93,7 @@ export function rowsToTransactions(rows) {
   if (!rows || rows.length < 2) return []
   const [, ...data] = rows
   return data.filter(r => r[0]).map((r, i) => ({
-    id: i + 1,
+    id: r[7] || i + 1,
     date: r[0],
     category: r[1] || '',
     subcategory: r[2] || '',
@@ -117,8 +118,8 @@ export function accountsToRows(accounts, transactions = []) {
     return opening + delta
   }
   return [
-    ['Name', 'Type', 'OpeningBalance', 'OpeningDate', 'CurrentBalance', 'Notes'],
-    ...accounts.map(a => [a.name, a.type || 'bank', a.openingBalance || 0, a.openingDate || '', currentBalance(a), a.notes || ''])
+    ['Name', 'Type', 'OpeningBalance', 'OpeningDate', 'CurrentBalance', 'Notes', 'Id'],
+    ...accounts.map(a => [a.name, a.type || 'bank', a.openingBalance || 0, a.openingDate || '', currentBalance(a), a.notes || '', a.id ?? ''])
   ]
 }
 
@@ -128,7 +129,7 @@ export function rowsToAccounts(rows) {
   // Header may have either old (5 cols) or new (6 cols with CurrentBalance) schema.
   // Notes lives in r[5] in new schema, r[4] in old. CurrentBalance is computed-only — never read back.
   return data.filter(r => r[0]).map((r, i) => ({
-    id: i + 1,
+    id: r[6] || i + 1,
     name: r[0] || '',
     type: r[1] || 'bank',
     openingBalance: Number(r[2]) || 0,
@@ -143,8 +144,8 @@ function sortRemindersAsc(rs) {
 
 export function remindersToRows(rs) {
   return [
-    ['Title', 'Date', 'RecurrenceType', 'Amount', 'Type', 'ValidityDays', 'Account', 'Notes'],
-    ...sortRemindersAsc(rs).map(r => [r.title, r.date, r.recurrence, r.amount, r.type || '', r.validityDays || '', r.account || '', r.notes || ''])
+    ['Title', 'Date', 'RecurrenceType', 'Amount', 'Type', 'ValidityDays', 'Account', 'Notes', 'Id'],
+    ...sortRemindersAsc(rs).map(r => [r.title, r.date, r.recurrence, r.amount, r.type || '', r.validityDays || '', r.account || '', r.notes || '', r.id ?? ''])
   ]
 }
 
@@ -152,7 +153,7 @@ export function rowsToReminders(rows) {
   if (!rows || rows.length < 2) return []
   const [, ...data] = rows
   return data.filter(r => r[0]).map((r, i) => ({
-    id: i + 1,
+    id: r[8] || i + 1,
     title: r[0],
     date: r[1],
     recurrence: r[2] || 'once',

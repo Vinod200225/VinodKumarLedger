@@ -5,7 +5,7 @@ import { monthKey } from '../../utils/date.js'
 export default function CashFlowSummary() {
   const { state } = useApp()
   const mk = monthKey()
-  const month = state.transactions.filter(t => (t.date || '').startsWith(mk))
+  const month = state.transactions.filter(t => (t.date || '').startsWith(mk) && t.category !== 'Transfer')
   const income = month.filter(t => t.type === 'income').reduce((s, t) => s + Number(t.amount || 0), 0)
   const expense = month.filter(t => t.type === 'expense').reduce((s, t) => s + Number(t.amount || 0), 0)
   const net = income - expense

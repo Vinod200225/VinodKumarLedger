@@ -1,4 +1,5 @@
 import { createContext, useContext, useReducer, useMemo, useEffect } from 'react'
+import { newId } from '../utils/id.js'
 import {
   mockLoansReal, mockLoansPublic,
   mockConfigReal, mockConfigPublic,
@@ -34,21 +35,21 @@ function reducer(state, action) {
       return { ...state, ...action.payload }
 
     case 'LOAN_ADD':
-      return { ...state, loans: [...state.loans, { ...action.loan, id: Date.now() }] }
+      return { ...state, loans: [...state.loans, { ...action.loan, id: action.loan.id || newId() }] }
     case 'LOAN_UPDATE':
       return { ...state, loans: state.loans.map(l => l.id === action.loan.id ? { ...l, ...action.loan } : l) }
     case 'LOAN_DELETE':
       return { ...state, loans: state.loans.filter(l => l.id !== action.id) }
 
     case 'TX_ADD':
-      return { ...state, transactions: [...state.transactions, { ...action.tx, id: action.tx.id || Date.now() }] }
+      return { ...state, transactions: [...state.transactions, { ...action.tx, id: action.tx.id || newId() }] }
     case 'TX_UPDATE':
       return { ...state, transactions: state.transactions.map(t => t.id === action.tx.id ? { ...t, ...action.tx } : t) }
     case 'TX_DELETE':
       return { ...state, transactions: state.transactions.filter(t => t.id !== action.id) }
 
     case 'REMINDER_ADD':
-      return { ...state, reminders: [...state.reminders, { ...action.r, id: Date.now() }] }
+      return { ...state, reminders: [...state.reminders, { ...action.r, id: action.r.id || newId() }] }
     case 'REMINDER_UPDATE':
       return { ...state, reminders: state.reminders.map(r => r.id === action.r.id ? { ...r, ...action.r } : r) }
     case 'REMINDER_DELETE':
@@ -70,7 +71,7 @@ function reducer(state, action) {
       return { ...state, config: { ...state.config, splitPostDebt: action.split } }
 
     case 'ACCOUNT_ADD':
-      return { ...state, accounts: [...(state.accounts || []), { ...action.account, id: action.account.id || Date.now() }] }
+      return { ...state, accounts: [...(state.accounts || []), { ...action.account, id: action.account.id || newId() }] }
     case 'ACCOUNT_UPDATE':
       return { ...state, accounts: (state.accounts || []).map(a => a.id === action.account.id ? { ...a, ...action.account } : a) }
     case 'ACCOUNT_DELETE':

@@ -22,7 +22,7 @@ export default function MonthProjection() {
   const monthKey = currentMonthKey()
 
   const data = useMemo(() => {
-    const txs = (state.transactions || []).filter(t => t.date && t.date.startsWith(monthKey))
+    const txs = (state.transactions || []).filter(t => t.date && t.date.startsWith(monthKey) && t.category !== 'Transfer')
     const incomeLogged = txs.filter(t => t.type === 'income').reduce((s, t) => s + Number(t.amount || 0), 0)
     const expenseLogged = txs.filter(t => t.type === 'expense').reduce((s, t) => s + Number(t.amount || 0), 0)
 

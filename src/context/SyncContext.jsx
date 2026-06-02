@@ -23,10 +23,18 @@ function credsForView(view) {
 }
 
 export function SyncProvider({ children }) {
-  const { view, state, dispatch, wasLoadedFromLocal } = useApp()
+  const { view, state, dispatch } = useApp()
   const creds = useMemo(() => credsForView(view), [view])
   const stateRef = useRef(state)
   useEffect(() => { stateRef.current = state }, [state])
+
+  // Safety gates:
+  //  - pulledOkRef: writes are blocked until the first pull from the sheet succeeds,
+  //    so local/seed/test data can never be pushed over real sheet data.
+  //  - skipNextPushRef: after we HYDRATE from a pull, don't immediately push that
+  //    same data back (which could clobber the sheet if a tab read came back empty).
+  const pulledOkRef = useRef(false)
+  const skipNextPushRef = useRef(false)
 
   const [status, setStatus] = useState('idle')   // idle | pulling | pushing | ok | error | unconfigured
   const [lastSyncAt, setLastSyncAt] = useState(null)
@@ -34,11 +42,10 @@ export function SyncProvider({ children }) {
 
   const configured = Boolean(creds.sheetId && creds.apiKey)
 
-  // Initial pull
-  // If we have local data (wasLoadedFromLocal), DON'T hydrate from sheet on startup.
-  // Local is the source of truth; the sheet is just a backup. This avoids races where
-  // an in-flight push gets clobbered by a stale pull after a quick refresh.
-  // To pick up edits made directly in Google Sheets, the user taps the Sync badge.
+  // Initial pull — the Google Sheet is the SOURCE OF TRUTH.
+  // On every load we pull from the sheet and hydrate local state from it.
+  // Writes (auto-push / syncNow) stay BLOCKED until this pull succeeds, so the app
+  // can never push stale local or seed/test data over your real sheet data.
   useEffect(() => {
     let cancelled = false
     if (!configured) {
@@ -53,16 +60,18 @@ export function SyncProvider({ children }) {
           payload.loans?.length || payload.transactions?.length ||
           payload.reminders?.length || Object.keys(payload.budget || {}).length ||
           Object.keys(payload.config || {}).length
-        if (hasAnything && !wasLoadedFromLocal) {
+        if (hasAnything) {
+          skipNextPushRef.current = true   // don't echo the freshly pulled data straight back
           dispatch({ type: 'HYDRATE', payload })
         }
+        pulledOkRef.current = true          // local now matches the sheet → writes allowed
         setStatus('ok')
         setLastSyncAt(new Date())
       })
       .catch(err => {
         if (cancelled) return
         setError(err.message)
-        setStatus('error')
+        setStatus('error')                  // pull failed → writes stay blocked, sheet stays safe
       })
     return () => { cancelled = true }
   }, [configured]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -86,6 +95,8 @@ export function SyncProvider({ children }) {
   useEffect(() => {
     if (firstRun.current) { firstRun.current = false; return }
     if (!triggerRef.current) return
+    if (!pulledOkRef.current) return                 // never push before the sheet has been pulled
+    if (skipNextPushRef.current) { skipNextPushRef.current = false; return }  // skip the hydrate echo
     setStatus('pushing')
     triggerRef.current(err => {
       if (err) {
@@ -103,11 +114,15 @@ export function SyncProvider({ children }) {
     if (!configured) return
     try {
       setStatus('pushing')
-      if (creds.webhookUrl && creds.secret) {
+      // Only push if the initial pull already succeeded — otherwise we'd risk
+      // pushing stale/seed data over the sheet.
+      if (creds.webhookUrl && creds.secret && pulledOkRef.current) {
         await pushAll(creds, stateRef.current)
       }
       const payload = await pullAll(creds)
+      skipNextPushRef.current = true
       dispatch({ type: 'HYDRATE', payload })
+      pulledOkRef.current = true
       setStatus('ok')
       setLastSyncAt(new Date())
       setError(null)
@@ -124,7 +139,9 @@ export function SyncProvider({ children }) {
     try {
       setStatus('pulling')
       const payload = await pullAll(creds)
+      skipNextPushRef.current = true   // pull-only: don't bounce this data back to the sheet
       dispatch({ type: 'HYDRATE', payload })
+      pulledOkRef.current = true
       setStatus('ok')
       setLastSyncAt(new Date())
       setError(null)
